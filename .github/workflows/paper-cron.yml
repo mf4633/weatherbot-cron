@@ -1,0 +1,20 @@
+name: Paper logger cron
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  fire:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Hit /api/paper_logger
+        env:
+          BASIC_AUTH: ${{ secrets.WEATHERBOT_BASIC_AUTH }}
+        run: |
+          curl --max-time 60 -sS -u "$BASIC_AUTH" \
+            "https://weatherbot-mf.netlify.app/api/paper_logger" \
+            -o /tmp/out.json -w "HTTP %{http_code}\n"
+          jq '{ranAtUTC, bankroll, openCount, captures: (.captures|length), placements: (.placements|length), settlements: (.settlements|length), errors: (.errors|length)}' /tmp/out.json
