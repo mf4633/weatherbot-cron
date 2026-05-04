@@ -8,3 +8,4 @@ Two jobs, both fire every 5 minutes via GitHub Actions cron:
 - `paper-cron.yml` → hits `/api/paper_logger` (paper-trading bookkeeper + residual logger)
 
 Auth: HTTP Basic via the `WEATHERBOT_BASIC_AUTH` repo secret (format `user:password`).
+
