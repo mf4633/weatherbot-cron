@@ -1,0 +1,19 @@
+name: Calibration update cron
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  fire:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Trigger /api/calibration_update (background, 202)
+        env:
+          BASIC_AUTH: ${{ secrets.WEATHERBOT_BASIC_AUTH }}
+        run: |
+          curl --max-time 30 -sS -u "$BASIC_AUTH" \
+            "https://weatherbot-mf.netlify.app/api/calibration_update" \
+            -o /dev/null -w "calibration_update HTTP %{http_code}\n"
