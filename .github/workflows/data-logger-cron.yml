@@ -1,0 +1,63 @@
+name: Data logger cron
+
+# Drives the data loggers reliably (Netlify's own scheduler is throttled). Each hourly
+# run: (1) records the full Kalshi book + obs via market_logger, (2) settles past days,
+# (3) fires the Claude scoreboard background logger (predict + settle, 15-min budget),
+# (4) reads back its status blob + latest-count so failures are visible in this log.
+# Places NO trades. Auth: WEATHERBOT_BASIC_AUTH repo secret (user:password).
+on:
+  schedule:
+    - cron: "5 * * * *"      # hourly (GitHub Actions can't hold a reliable sub-hourly cadence)
+  workflow_dispatch: {}
+
+concurrency:
+  group: data-logger
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: market_logger — record snapshot
+        env:
+          BASIC_AUTH: ${{ secrets.WEATHERBOT_BASIC_AUTH }}
+        run: |
+          curl --max-time 60 -sS -u "$BASIC_AUTH" \
+            "https://weatherbot-mf.netlify.app/api/market_logger?mode=record" \
+            -o /tmp/rec.json -w "record HTTP %{http_code}\n" || true
+          jq '{ok, key, cities}' /tmp/rec.json 2>/dev/null || echo "(non-JSON — likely a Netlify timeout; next hour retries)"
+      - name: market_logger — settle past days
+        env:
+          BASIC_AUTH: ${{ secrets.WEATHERBOT_BASIC_AUTH }}
+        run: |
+          curl --max-time 120 -sS -u "$BASIC_AUTH" \
+            "https://weatherbot-mf.netlify.app/api/market_logger?mode=settle" \
+            -o /tmp/set.json -w "settle HTTP %{http_code}\n" || true
+          jq '{ok, settledDays}' /tmp/set.json 2>/dev/null || echo "(non-JSON — likely a Netlify timeout; next hour retries)"
+      - name: Claude scoreboard — log decisions + settle (background fn)
+        env:
+          BASIC_AUTH: ${{ secrets.WEATHERBOT_BASIC_AUTH }}
+        run: |
+          # Background function: returns 202 immediately, runs predict+settle for up to
+          # 15 min so it actually finishes logging (the synchronous /api/claude timed out
+          # at ~10s and logged nothing). Fire-and-forget.
+          curl --max-time 30 -sS -u "$BASIC_AUTH" \
+            "https://weatherbot-mf.netlify.app/.netlify/functions/claude_log-background" \
+            -o /tmp/cl.txt -w "claude-log-bg HTTP %{http_code} (202 = accepted)\n" || true
+      - name: Claude scoreboard — diagnostic (status + latest count)
+        env:
+          BASIC_AUTH: ${{ secrets.WEATHERBOT_BASIC_AUTH }}
+        run: |
+          # Give this run's background fn time to finish, then read the status blob it
+          # wrote and the resulting latest-count — surfaces fetch/blob failures without
+          # needing Netlify function logs.
+          sleep 40
+          curl --max-time 30 -sS -u "$BASIC_AUTH" \
+            "https://weatherbot-mf.netlify.app/api/claude?mode=status" \
+            -o /tmp/st.json -w "status HTTP %{http_code}\n" || true
+          echo "--- last_log ---"; cat /tmp/st.json 2>/dev/null || true; echo
+          curl --max-time 30 -sS -u "$BASIC_AUTH" \
+            "https://weatherbot-mf.netlify.app/api/claude?mode=latest" \
+            -o /tmp/lt.json -w "latest HTTP %{http_code}\n" || true
+          jq '{count, asof}' /tmp/lt.json 2>/dev/null || echo "(latest non-JSON)"
