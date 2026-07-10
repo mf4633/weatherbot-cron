@@ -45,6 +45,23 @@ jobs:
           curl --max-time 30 -sS -u "$BASIC_AUTH" \
             "https://weatherbot-mf.netlify.app/.netlify/functions/claude_log-background" \
             -o /tmp/cl.txt -w "claude-log-bg HTTP %{http_code} (202 = accepted)\n" || true
+      - name: Analog backtest — trigger (idempotent background fn)
+        env:
+          BASIC_AUTH: ${{ secrets.WEATHERBOT_BASIC_AUTH }}
+        run: |
+          # Replays the v3 analog over the last 45 days vs IEM CLI truth / MOS guidance.
+          # The function no-ops if results are <6 days old, so this is safe hourly.
+          curl --max-time 30 -sS -u "$BASIC_AUTH" \
+            "https://weatherbot-mf.netlify.app/.netlify/functions/backtest-background" \
+            -o /dev/null -w "backtest-bg HTTP %{http_code} (202 = accepted)\n" || true
+      - name: Analog backtest — results
+        env:
+          BASIC_AUTH: ${{ secrets.WEATHERBOT_BASIC_AUTH }}
+        run: |
+          curl --max-time 30 -sS -u "$BASIC_AUTH" \
+            "https://weatherbot-mf.netlify.app/api/claude?mode=backtest" \
+            -o /tmp/bt.json -w "backtest HTTP %{http_code}\n" || true
+          jq '{ranAt: .results.ranAt, totalRows: .results.totalRows, overall: .results.overall, errors: .results.errors}' /tmp/bt.json 2>/dev/null || echo "(backtest pending — first run takes a few minutes)"
       - name: Claude scoreboard — diagnostic (status + latest count)
         env:
           BASIC_AUTH: ${{ secrets.WEATHERBOT_BASIC_AUTH }}
