@@ -78,3 +78,13 @@ jobs:
             "https://weatherbot-mf.netlify.app/api/claude?mode=latest" \
             -o /tmp/lt.json -w "latest HTTP %{http_code}\n" || true
           jq '{count, asof}' /tmp/lt.json 2>/dev/null || echo "(latest non-JSON)"
+      - name: Trading gate — verdicts (last-decision governs; first-decision informational)
+        env:
+          BASIC_AUTH: ${{ secrets.WEATHERBOT_BASIC_AUTH }}
+        run: |
+          # The pre-registered gate matures at n>=30 settled city-days. Printing both
+          # windows here makes every hourly log a gate checkpoint.
+          curl --max-time 60 -sS -u "$BASIC_AUTH" \
+            "https://weatherbot-mf.netlify.app/api/claude?mode=scoreboard" \
+            -o /tmp/sb.json -w "scoreboard HTTP %{http_code}\n" || true
+          jq '{n_records, gate, gateFirst, lastObOnly}' /tmp/sb.json 2>/dev/null || echo "(scoreboard non-JSON)"
