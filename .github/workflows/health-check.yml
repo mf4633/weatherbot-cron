@@ -1,0 +1,31 @@
+name: daily health check
+# The hourly logger tolerates individual Netlify timeouts by design (|| true +
+# next-hour retry). This job is the alarm that design was missing: once a day,
+# require the record endpoint to actually return ok:true, and go RED if not.
+# Rationale: the same masking pattern in mf4633/low-no hid a dead pipeline for
+# three days behind green runs (Aug 2026). Tolerance hourly, honesty daily.
+on:
+  schedule:
+    - cron: "15 12 * * *"   # 8:15a ET, after overnight settles
+  workflow_dispatch: {}
+jobs:
+  health:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: record endpoint must return ok
+        env:
+          BASIC_AUTH: ${{ secrets.WEATHERBOT_BASIC_AUTH }}
+        run: |
+          curl --max-time 90 -sS -u "$BASIC_AUTH" \
+            "https://weatherbot-mf.netlify.app/api/market_logger?mode=record" \
+            -o /tmp/rec.json -w "record HTTP %{http_code}\n"
+          jq -e '.ok == true' /tmp/rec.json
+      - name: settle endpoint must return ok
+        env:
+          BASIC_AUTH: ${{ secrets.WEATHERBOT_BASIC_AUTH }}
+        run: |
+          curl --max-time 120 -sS -u "$BASIC_AUTH" \
+            "https://weatherbot-mf.netlify.app/api/market_logger?mode=settle" \
+            -o /tmp/set.json -w "settle HTTP %{http_code}\n"
+          jq -e '.ok == true' /tmp/set.json
